@@ -488,17 +488,9 @@ Future versions may include
 
 ---
 
-# Next Project
-
-**QXP03V01 – Autonomous Maze Solver Robot**
-
-The next project extends QXP02 by replacing reactive navigation with intelligent maze-solving algorithms, including:
-
-- Left-Hand Rule
-- Right-Hand Rule
-- Trémaux's Algorithm
-- Breadth-First Search (BFS)
-- A* Path Planning
+ - QXP02V01
+ - Status: COMPLETED
+ - Release: V01
 
 ---
 
