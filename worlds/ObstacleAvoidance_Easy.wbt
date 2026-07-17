@@ -1,0 +1,114 @@
+#VRML_SIM R2025a utf8
+
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackground.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/floors/protos/RectangleArena.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/robots/gctronic/e-puck/protos/E-puck.proto"
+
+WorldInfo {
+}
+Viewpoint {
+  orientation -0.015775827037021597 -0.9997247531891559 -0.01736494002809897 4.645919011823388
+  position 0.6156187182824399 -0.10739115612029912 8.9773472980281
+}
+TexturedBackground {
+}
+TexturedBackgroundLight {
+}
+RectangleArena {
+  floorSize 4 4
+  wallThickness 0.05
+  wallHeight 0.2
+}
+E-puck {
+  rotation -2.2662695632885552e-07 -0.9999999999999684 -1.0771482794616267e-07 0.004065496314891371
+  name "quantheonix_robot"
+  controller "obstacle_avoidance_controller"
+}
+Solid {
+  translation 0.7 0 0.2
+  children [
+    Shape {
+      geometry Box {
+        size 0.3 0.8 0.4
+      }
+    }
+  ]
+  name "object_1"
+  boundingObject Box {
+    size 0.3 0.8 0.4
+  }
+}
+Solid {
+  translation -0.4 0.9 0.2
+  children [
+    Shape {
+      geometry Box {
+        size 0.5 0.3 0.4
+      }
+    }
+  ]
+  name "object_2"
+  boundingObject Box {
+    size 0.5 0.3 0.4
+  }
+}
+Solid {
+  translation 0.4 -0.9 0.2
+  children [
+    Shape {
+      geometry Box {
+        size 0.5 0.3 0.4
+      }
+    }
+  ]
+  name "object_2(2)"
+  boundingObject Box {
+    size 0.5 0.3 0.4
+  }
+}
+Solid {
+  translation 1.5 1 0.2
+  rotation 0 0 1 -0.9
+  children [
+    Shape {
+      geometry Box {
+        size 0.5 0.3 0.4
+      }
+    }
+  ]
+  name "object_2(4)"
+  boundingObject Box {
+    size 0.5 0.3 0.4
+  }
+}
+Solid {
+  translation -1.5 -0.9 0.2
+  rotation 0 0 1 0.9
+  children [
+    Shape {
+      geometry Box {
+        size 0.5 0.3 0.4
+      }
+    }
+  ]
+  name "object_2(5)"
+  boundingObject Box {
+    size 0.5 0.3 0.4
+  }
+}
+Solid {
+  translation 1.5 -1.6 0.2
+  rotation 0 0 1 0.875
+  children [
+    Shape {
+      geometry Box {
+        size 0.5 0.3 0.4
+      }
+    }
+  ]
+  name "object_2(6)"
+  boundingObject Box {
+    size 0.5 0.3 0.4
+  }
+}
