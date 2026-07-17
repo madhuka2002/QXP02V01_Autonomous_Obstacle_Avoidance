@@ -1,24 +1,69 @@
 from controller import Robot
 
+
+# ============================================================
+# QXP02V01 — Autonomous Obstacle Avoidance Robot
+# Quantheonix Robotics Research Project
+# ============================================================
+
 robot = Robot()
-timestep = int(robot.getBasicTimeStep())
+timeStep = int(robot.getBasicTimeStep())
 
-# --------------------------------------------------
+
+# ============================================================
 # Configuration
-# --------------------------------------------------
+# ============================================================
 
-FORWARD_SPEED = 3.0
-TURN_SPEED = 2.5
+maxSpeed = 6.28
 
-FRONT_THRESHOLD = 80
-SIDE_THRESHOLD = 60
+forwardSpeed = 3.0
+slowSpeed = 1.8
+turnSpeed = 2.7
+reverseSpeed = 2.0
 
-STOP_DURATION = 5
-TURN_DURATION = 45
+frontThreshold = 80.0
+clearThreshold = 45.0
+steeringDifference = 15.0
 
-# --------------------------------------------------
-# Motors
-# --------------------------------------------------
+stopDuration = 0.20
+minimumTurnDuration = 0.30
+maximumTurnDuration = 1.50
+reverseDuration = 0.80
+recoveryTurnDuration = 1.30
+
+stuckTimeWindow = 3.0
+maximumRepeatedObstacles = 3
+
+statisticsInterval = 5.0
+
+
+# ============================================================
+# Robot States
+# ============================================================
+
+FORWARD = 0
+STOP = 1
+ANALYZE = 2
+TURN_LEFT = 3
+TURN_RIGHT = 4
+BACKWARD = 5
+RECOVERY_TURN = 6
+
+
+stateNames = {
+    FORWARD: "FORWARD",
+    STOP: "STOP",
+    ANALYZE: "ANALYZE",
+    TURN_LEFT: "TURN_LEFT",
+    TURN_RIGHT: "TURN_RIGHT",
+    BACKWARD: "BACKWARD",
+    RECOVERY_TURN: "RECOVERY_TURN"
+}
+
+
+# ============================================================
+# Motor Initialization
+# ============================================================
 
 leftMotor = robot.getDevice("left wheel motor")
 rightMotor = robot.getDevice("right wheel motor")
@@ -29,224 +74,384 @@ if leftMotor is None:
 if rightMotor is None:
     raise RuntimeError('Device "right wheel motor" was not found.')
 
-# Enable velocity control
 leftMotor.setPosition(float("inf"))
 rightMotor.setPosition(float("inf"))
 
 leftMotor.setVelocity(0.0)
 rightMotor.setVelocity(0.0)
 
-# --------------------------------------------------
-# Distance Sensors
-# --------------------------------------------------
+
+# ============================================================
+# Distance Sensor Initialization
+# ============================================================
 
 sensors = []
 
-for i in range(8):
-    sensor = robot.getDevice(f"ps{i}")
+for sensorIndex in range(8):
+    sensorName = f"ps{sensorIndex}"
+    sensor = robot.getDevice(sensorName)
 
     if sensor is None:
-        raise RuntimeError(f'Distance sensor "ps{i}" was not found.')
+        raise RuntimeError(f'Distance sensor "{sensorName}" was not found.')
 
-    sensor.enable(timestep)
+    sensor.enable(timeStep)
     sensors.append(sensor)
 
-print("Sensors initialized.")
 
-# --------------------------------------------------
-# Robot States
-# --------------------------------------------------
+# ============================================================
+# Controller Variables
+# ============================================================
 
-FORWARD = 0
-STOP = 1
-ANALYZE = 2
-TURN_LEFT = 3
-TURN_RIGHT = 4
-
-state = FORWARD
+currentState = FORWARD
 previousState = None
-stateCounter = 0
+stateStartTime = robot.getTime()
 
-# --------------------------------------------------
+lastTurnDirection = TURN_RIGHT
+recoveryTurnDirection = TURN_LEFT
+
+lastObstacleTime = -100.0
+repeatedObstacleCount = 0
+
+obstacleCount = 0
+leftTurnCount = 0
+rightTurnCount = 0
+recoveryCount = 0
+
+lastStatisticsTime = robot.getTime()
+
+
+# ============================================================
 # Helper Functions
-# --------------------------------------------------
+# ============================================================
 
-def set_motor_speeds(left_speed, right_speed):
-    leftMotor.setVelocity(left_speed)
-    rightMotor.setVelocity(right_speed)
-
-
-def state_name(current_state):
-    names = {
-        FORWARD: "FORWARD",
-        STOP: "STOP",
-        ANALYZE: "ANALYZE",
-        TURN_LEFT: "TURN_LEFT",
-        TURN_RIGHT: "TURN_RIGHT"
-    }
-
-    return names.get(current_state, "UNKNOWN")
+def clampSpeed(speed):
+    """Keep motor speed inside the e-puck motor limits."""
+    return max(-maxSpeed, min(maxSpeed, speed))
 
 
-# --------------------------------------------------
-# Main Loop
-# --------------------------------------------------
+def setMotorSpeeds(leftSpeed, rightSpeed):
+    """Apply velocity values to both wheel motors."""
+    leftMotor.setVelocity(clampSpeed(leftSpeed))
+    rightMotor.setVelocity(clampSpeed(rightSpeed))
 
-while robot.step(timestep) != -1:
 
-    # Read sensor values
-    values = [sensor.getValue() for sensor in sensors]
+def changeState(newState):
+    """Change the FSM state and reset the state timer."""
+    global currentState
+    global stateStartTime
 
-    frontLeft = values[7]
-    frontRight = values[0]
+    currentState = newState
+    stateStartTime = robot.getTime()
 
-    leftFront = values[6]
-    leftRear = values[5]
 
-    rightFront = values[1]
-    rightRear = values[2]
+def getStateElapsedTime():
+    """Return the time spent in the current state."""
+    return robot.getTime() - stateStartTime
 
-    # Combine sensor readings
+
+def printStateChange():
+    """Print state only when it changes."""
+    global previousState
+
+    if currentState != previousState:
+        print(f"\nState: {stateNames[currentState]}")
+        previousState = currentState
+
+
+def printStatistics():
+    """Display navigation statistics periodically."""
+    runtime = robot.getTime()
+
+    print("\n")
+    print("=" * 46)
+    print("QXP02V01 NAVIGATION STATISTICS")
+    print("=" * 46)
+    print(f"Runtime             : {runtime:7.1f} seconds")
+    print(f"Obstacles detected  : {obstacleCount}")
+    print(f"Left turns          : {leftTurnCount}")
+    print(f"Right turns         : {rightTurnCount}")
+    print(f"Recovery actions    : {recoveryCount}")
+    print(f"Current state       : {stateNames[currentState]}")
+    print("=" * 46)
+
+
+# ============================================================
+# Startup Message
+# ============================================================
+
+print("=" * 52)
+print("QXP02V01 — AUTONOMOUS OBSTACLE AVOIDANCE ROBOT")
+print("Quantheonix controller started successfully.")
+print("=" * 52)
+print("Eight proximity sensors initialized.")
+print("Robot is ready.\n")
+
+
+# ============================================================
+# Main Control Loop
+# ============================================================
+
+while robot.step(timeStep) != -1:
+
+    currentTime = robot.getTime()
+
+    # --------------------------------------------------------
+    # Read all eight sensors
+    # --------------------------------------------------------
+
+    sensorValues = [sensor.getValue() for sensor in sensors]
+
+    frontRight = sensorValues[0]
+    rightFront = sensorValues[1]
+    rightRear = sensorValues[2]
+
+    backRight = sensorValues[3]
+    backLeft = sensorValues[4]
+
+    leftRear = sensorValues[5]
+    leftFront = sensorValues[6]
+    frontLeft = sensorValues[7]
+
+    # --------------------------------------------------------
+    # Process sensor groups
+    # --------------------------------------------------------
+
     frontValue = max(frontLeft, frontRight)
 
-    leftValue = max(frontLeft, leftFront, leftRear)
-    rightValue = max(frontRight, rightFront, rightRear)
-
-    # Print state only when it changes
-    if state != previousState:
-        print(f"\nState changed to: {state_name(state)}")
-        previousState = state
-
-    # Optional sensor debugging
-    print(
-        f"\r"
-        f"FL: {frontLeft:5.0f} | "
-        f"FR: {frontRight:5.0f} | "
-        f"LF: {leftFront:5.0f} | "
-        f"RF: {rightFront:5.0f}",
-        end=""
+    leftValue = max(
+        frontLeft,
+        leftFront,
+        leftRear
     )
 
-    # --------------------------------------------------
-    # FORWARD
-    # --------------------------------------------------
+    rightValue = max(
+        frontRight,
+        rightFront,
+        rightRear
+    )
 
-    if state == FORWARD:
+    backValue = max(backLeft, backRight)
 
-        # Slight steering corrections
-        left_speed = FORWARD_SPEED
-        right_speed = FORWARD_SPEED
-    
-        # Obstacle closer on the left
-        if frontLeft > frontRight + 15:
-            left_speed = FORWARD_SPEED
-            right_speed = FORWARD_SPEED * 0.65
-    
-        # Obstacle closer on the right
-        elif frontRight > frontLeft + 15:
-            left_speed = FORWARD_SPEED * 0.65
-            right_speed = FORWARD_SPEED
-    
-        set_motor_speeds(left_speed, right_speed)
-    
-        if frontValue > FRONT_THRESHOLD:
-            print("\nObstacle detected.")
-    
-            set_motor_speeds(0.0, 0.0)
-    
-            state = STOP
-            stateCounter = 0
+    frontClear = frontValue < clearThreshold
 
-    # --------------------------------------------------
-    # STOP
-    # --------------------------------------------------
+    printStateChange()
 
-    elif state == STOP:
+    # --------------------------------------------------------
+    # State: FORWARD
+    # --------------------------------------------------------
 
-        set_motor_speeds(0.0, 0.0)
+    if currentState == FORWARD:
 
-        stateCounter += 1
+        leftSpeed = forwardSpeed
+        rightSpeed = forwardSpeed
 
-        if stateCounter >= STOP_DURATION:
-            state = ANALYZE
-            stateCounter = 0
+        sensorDifference = frontLeft - frontRight
 
-    # --------------------------------------------------
-    # ANALYZE
-    # --------------------------------------------------
+        # Obstacle is closer on the left.
+        # Turn slightly toward the right.
+        if sensorDifference > steeringDifference:
+            leftSpeed = forwardSpeed
+            rightSpeed = slowSpeed
 
-    elif state == ANALYZE:
+        # Obstacle is closer on the right.
+        # Turn slightly toward the left.
+        elif sensorDifference < -steeringDifference:
+            leftSpeed = slowSpeed
+            rightSpeed = forwardSpeed
 
-        set_motor_speeds(0.0, 0.0)
+        setMotorSpeeds(leftSpeed, rightSpeed)
+
+        if frontValue > frontThreshold:
+
+            obstacleCount += 1
+
+            print(
+                f"\nObstacle #{obstacleCount} detected | "
+                f"Front-left: {frontLeft:.0f} | "
+                f"Front-right: {frontRight:.0f}"
+            )
+
+            # Detect repeated obstacle encounters.
+            if currentTime - lastObstacleTime < stuckTimeWindow:
+                repeatedObstacleCount += 1
+            else:
+                repeatedObstacleCount = 1
+
+            lastObstacleTime = currentTime
+
+            setMotorSpeeds(0.0, 0.0)
+
+            # Repeated detection means the robot may be trapped.
+            if repeatedObstacleCount >= maximumRepeatedObstacles:
+                print("Possible corner or trapped condition detected.")
+                changeState(BACKWARD)
+            else:
+                changeState(STOP)
+
+    # --------------------------------------------------------
+    # State: STOP
+    # --------------------------------------------------------
+
+    elif currentState == STOP:
+
+        setMotorSpeeds(0.0, 0.0)
+
+        if getStateElapsedTime() >= stopDuration:
+            changeState(ANALYZE)
+
+    # --------------------------------------------------------
+    # State: ANALYZE
+    # --------------------------------------------------------
+
+    elif currentState == ANALYZE:
+
+        setMotorSpeeds(0.0, 0.0)
 
         print(
-            f"\nAnalyzing space: "
-            f"Left={leftValue:.0f}, "
-            f"Right={rightValue:.0f}"
+            f"Analyzing path | "
+            f"Left: {leftValue:.0f} | "
+            f"Right: {rightValue:.0f}"
         )
 
-        # Lower sensor value means more free space
+        # Lower proximity reading means more free space.
         if leftValue < rightValue:
-            print("More space on the left.")
-            state = TURN_LEFT
+            leftTurnCount += 1
+            lastTurnDirection = TURN_LEFT
+
+            print("Decision: turn left.")
+            changeState(TURN_LEFT)
 
         elif rightValue < leftValue:
-            print("More space on the right.")
-            state = TURN_RIGHT
+            rightTurnCount += 1
+            lastTurnDirection = TURN_RIGHT
+
+            print("Decision: turn right.")
+            changeState(TURN_RIGHT)
 
         else:
-            print("Both sides are similar. Turning left by default.")
-            state = TURN_LEFT
+            # Alternate when both directions look equal.
+            if lastTurnDirection == TURN_LEFT:
+                rightTurnCount += 1
+                lastTurnDirection = TURN_RIGHT
 
-        stateCounter = 0
+                print("Paths are equal. Alternating to the right.")
+                changeState(TURN_RIGHT)
 
-    # --------------------------------------------------
-    # TURN LEFT
-    # --------------------------------------------------
-    
-    elif state == TURN_LEFT:
-    
-        set_motor_speeds(-TURN_SPEED, TURN_SPEED)
-    
-        stateCounter += 1
-    
-        # Finish turning when the front is clear
-        # but require a minimum turning time first.
-        if stateCounter >= 12 and frontValue < FRONT_THRESHOLD * 0.6:
-            set_motor_speeds(0.0, 0.0)
-    
-            state = FORWARD
-            stateCounter = 0
-    
-        # Safety fallback
-        elif stateCounter >= TURN_DURATION:
-            set_motor_speeds(0.0, 0.0)
-    
-            state = FORWARD
-            stateCounter = 0
-    
-    
-    # --------------------------------------------------
-    # TURN RIGHT
-    # --------------------------------------------------
-    
-    elif state == TURN_RIGHT:
-    
-        set_motor_speeds(TURN_SPEED, -TURN_SPEED)
-    
-        stateCounter += 1
-    
-        # Finish turning when the front is clear
-        # but require a minimum turning time first.
-        if stateCounter >= 12 and frontValue < FRONT_THRESHOLD * 0.6:
-            set_motor_speeds(0.0, 0.0)
-    
-            state = FORWARD
-            stateCounter = 0
-    
-        # Safety fallback
-        elif stateCounter >= TURN_DURATION:
-            set_motor_speeds(0.0, 0.0)
-    
-            state = FORWARD
-            stateCounter = 0
+            else:
+                leftTurnCount += 1
+                lastTurnDirection = TURN_LEFT
+
+                print("Paths are equal. Alternating to the left.")
+                changeState(TURN_LEFT)
+
+    # --------------------------------------------------------
+    # State: TURN LEFT
+    # --------------------------------------------------------
+
+    elif currentState == TURN_LEFT:
+
+        setMotorSpeeds(-turnSpeed, turnSpeed)
+
+        elapsedTime = getStateElapsedTime()
+
+        if (
+            elapsedTime >= minimumTurnDuration
+            and frontClear
+        ):
+            setMotorSpeeds(0.0, 0.0)
+            changeState(FORWARD)
+
+        elif elapsedTime >= maximumTurnDuration:
+            setMotorSpeeds(0.0, 0.0)
+            changeState(FORWARD)
+
+    # --------------------------------------------------------
+    # State: TURN RIGHT
+    # --------------------------------------------------------
+
+    elif currentState == TURN_RIGHT:
+
+        setMotorSpeeds(turnSpeed, -turnSpeed)
+
+        elapsedTime = getStateElapsedTime()
+
+        if (
+            elapsedTime >= minimumTurnDuration
+            and frontClear
+        ):
+            setMotorSpeeds(0.0, 0.0)
+            changeState(FORWARD)
+
+        elif elapsedTime >= maximumTurnDuration:
+            setMotorSpeeds(0.0, 0.0)
+            changeState(FORWARD)
+
+    # --------------------------------------------------------
+    # State: BACKWARD
+    # --------------------------------------------------------
+
+    elif currentState == BACKWARD:
+
+        setMotorSpeeds(-reverseSpeed, -reverseSpeed)
+
+        # Stop reversing early if something is behind the robot.
+        if backValue > frontThreshold:
+            print("Rear obstacle detected. Ending reverse early.")
+            setMotorSpeeds(0.0, 0.0)
+
+            recoveryCount += 1
+
+            if lastTurnDirection == TURN_LEFT:
+                recoveryTurnDirection = TURN_RIGHT
+            else:
+                recoveryTurnDirection = TURN_LEFT
+
+            changeState(RECOVERY_TURN)
+
+        elif getStateElapsedTime() >= reverseDuration:
+            setMotorSpeeds(0.0, 0.0)
+
+            recoveryCount += 1
+
+            if lastTurnDirection == TURN_LEFT:
+                recoveryTurnDirection = TURN_RIGHT
+            else:
+                recoveryTurnDirection = TURN_LEFT
+
+            changeState(RECOVERY_TURN)
+
+    # --------------------------------------------------------
+    # State: RECOVERY TURN
+    # --------------------------------------------------------
+
+    elif currentState == RECOVERY_TURN:
+
+        if recoveryTurnDirection == TURN_LEFT:
+            setMotorSpeeds(-turnSpeed, turnSpeed)
+        else:
+            setMotorSpeeds(turnSpeed, -turnSpeed)
+
+        if getStateElapsedTime() >= recoveryTurnDuration:
+            setMotorSpeeds(0.0, 0.0)
+
+            repeatedObstacleCount = 0
+
+            print("Recovery completed.")
+            changeState(FORWARD)
+
+    # --------------------------------------------------------
+    # Periodic statistics
+    # --------------------------------------------------------
+
+    if currentTime - lastStatisticsTime >= statisticsInterval:
+        printStatistics()
+        lastStatisticsTime = currentTime
+
+
+# ============================================================
+# Simulation End
+# ============================================================
+
+setMotorSpeeds(0.0, 0.0)
+printStatistics()
+print("QXP02V01 controller stopped.")
